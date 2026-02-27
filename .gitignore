@@ -1,0 +1,43 @@
+# Unity generated folders
+[Ll]ibrary/
+[Tt]emp/
+[Oo]bj/
+[Bb]uild/
+[Bb]uilds/
+[Ll]ogs/
+[Mm]emoryCaptures/
+UserSettings/
+
+# IDE
+.vs/
+.vscode/
+.idea/
+
+# Auto-generated solution/project files
+*.csproj
+*.unityproj
+*.sln
+*.slnx
+*.suo
+*.tmp
+*.user
+*.userprefs
+*.pidb
+*.booproj
+*.svd
+*.pdb
+*.mdb
+*.opendb
+*.VC.db
+
+# macOS
+.DS_Store
+
+# Crash reports
+mono_crash.*.json
+
+# Unity Addressables
+Assets/AddressableAssetsData/*/*.bin*
+
+# IL2CPP generated
+il2cppOutput/
