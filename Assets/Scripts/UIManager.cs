@@ -29,9 +29,24 @@ public class UIManager : MonoBehaviour
     [SerializeField, Range(0.08f, 0.20f)] float logoShadowOpacity = 0.14f;
     [Header("Startup Splash")]
     [SerializeField] bool showStartupSplash = true;
+    [SerializeField] bool showStartupSplashOnlyOncePerInstall = true;
     [SerializeField, Range(0.6f, 2f)] float startupSplashDuration = 1.6f;
     [SerializeField] Sprite startupLogoSprite;
-    [SerializeField] string startupFallbackTitle = "BLOCK BANG SPLASH";
+    [SerializeField] string startupLogoResourcesPath = "Branding/culmin_studio_logo";
+    [SerializeField, Range(0.6f, 2f)] float startupGameSplashDuration = 1.6f;
+    [SerializeField] Sprite startupGameLogoSprite;
+    [SerializeField] string startupGameLogoResourcesPath = "Branding/boomix_logo";
+    [SerializeField] string startupSplashSeenKey = "startup_splash_seen_v1";
+    [SerializeField] Color startupSplashBackgroundColor = Color.black;
+    [SerializeField] string startupFallbackTitle = "CULMIN STUDIO";
+    [SerializeField] string startupGameFallbackTitle = "BOOMIX\nBlock Puzzle";
+
+    [Header("Best Icon")]
+    [SerializeField] Sprite bestScoreIconSprite;
+    [SerializeField] string bestScoreIconResourcesPath = "Branding/best_trophy_small";
+    [SerializeField] Vector2 bestScoreIconSize = new Vector2(56f, 56f);
+    [SerializeField] Sprite bestScoreLargeIconSprite;
+    [SerializeField] string bestScoreLargeIconResourcesPath = "Branding/best_trophy_large";
 
     // ── Runtime-created elements ───────────────────────────────────────────────
 
@@ -45,8 +60,6 @@ public class UIManager : MonoBehaviour
     // Game Over extras
     CanvasGroup _panelGroup;         // drives fade-in and blocks raycasts
     GameObject  _newBestBadge;       // gold "NEW BEST!" pill (hidden unless record broken)
-    Button      _mainMenuButton;     // secondary CTA
-    TMP_Text    _mainMenuLabel;      // its localized text
     bool        _newBestThisGame;    // true if this game's score beat the session-start high score
     int         _sessionStartHighScore; // high score recorded at Start(), before this game
     Coroutine   _finalScoreRoutine;  // count-up for final score display
@@ -57,6 +70,9 @@ public class UIManager : MonoBehaviour
     Coroutine _scoreCountRoutine;
     static Sprite _vignetteSprite;
     static Sprite _startupGradientSprite;
+    static Sprite _bestScoreLargeIconCache;
+
+    public static Sprite BestScoreLargeIcon => _bestScoreLargeIconCache;
 
     // ── Colors ────────────────────────────────────────────────────────────────
 
@@ -147,6 +163,8 @@ public class UIManager : MonoBehaviour
             _uiRoot = safeRoot != null ? safeRoot : canvas.transform;
         }
 
+        _bestScoreLargeIconCache = ResolveLogo(bestScoreLargeIconSprite, bestScoreLargeIconResourcesPath);
+
         // Remove leftover TMP_Text direct children from older UIManager layout
         RemoveLegacyTextChildren(canvas);
 
@@ -156,7 +174,7 @@ public class UIManager : MonoBehaviour
         BuildHeader(canvas);
         BuildTrayCard(canvas);
         ApplyLogoShadowIfPresent(canvas);
-        if (showStartupSplash) StartCoroutine(ShowStartupSplash(canvas));
+        if (ShouldShowStartupSplash()) StartCoroutine(ShowStartupSplash(canvas));
 
         // Game Over panel — configure BEFORE SetActive(false)
         ConfigureGameOverPanel();
@@ -287,8 +305,8 @@ public class UIManager : MonoBehaviour
 
         var bg = splash.AddComponent<Image>();
         bg.raycastTarget = true;
-        bg.sprite = GetOrCreateStartupGradientSprite();
-        bg.color = Color.white;
+        bg.sprite = null;
+        bg.color = startupSplashBackgroundColor;
 
         var splashRt = splash.GetComponent<RectTransform>();
         splashRt.anchorMin = Vector2.zero;
@@ -296,12 +314,55 @@ public class UIManager : MonoBehaviour
         splashRt.offsetMin = Vector2.zero;
         splashRt.offsetMax = Vector2.zero;
 
-        if (startupLogoSprite != null)
+        var splashGroup = splash.AddComponent<CanvasGroup>();
+        splashGroup.alpha = 1f;
+
+        var firstContent = BuildSplashContent(splash.transform, ResolveStartupLogo(), startupFallbackTitle);
+        yield return new WaitForSeconds(startupSplashDuration);
+
+        var gameLogo = ResolveLogo(startupGameLogoSprite, startupGameLogoResourcesPath);
+        if (gameLogo != null || !string.IsNullOrWhiteSpace(startupGameFallbackTitle))
+        {
+            var secondContent = BuildSplashContent(splash.transform, gameLogo, startupGameFallbackTitle);
+            var secondCg = secondContent.GetComponent<CanvasGroup>();
+            if (secondCg != null) secondCg.alpha = 0f;
+
+            yield return CrossFadeSplashContent(firstContent, secondContent, 0.22f);
+            Destroy(firstContent);
+
+            yield return new WaitForSeconds(startupGameSplashDuration);
+        }
+
+        float t = 0f;
+        const float fadeDur = 0.25f;
+        while (t < fadeDur)
+        {
+            t += Time.deltaTime;
+            splashGroup.alpha = 1f - Mathf.Clamp01(t / fadeDur);
+            yield return null;
+        }
+
+        Destroy(splash);
+        MarkStartupSplashSeen();
+    }
+
+    GameObject BuildSplashContent(Transform parent, Sprite logoSprite, string fallbackTitle)
+    {
+        var content = new GameObject("SplashContent");
+        content.transform.SetParent(parent, false);
+        var crt = content.AddComponent<RectTransform>();
+        crt.anchorMin = Vector2.zero;
+        crt.anchorMax = Vector2.one;
+        crt.offsetMin = Vector2.zero;
+        crt.offsetMax = Vector2.zero;
+        content.AddComponent<CanvasGroup>().alpha = 1f;
+
+        if (logoSprite != null)
         {
             var logoGo = new GameObject("SplashLogo");
-            logoGo.transform.SetParent(splash.transform, false);
+            logoGo.transform.SetParent(content.transform, false);
             var logo = logoGo.AddComponent<Image>();
-            logo.sprite = startupLogoSprite;
+            logo.sprite = logoSprite;
             logo.preserveAspect = true;
             logo.raycastTarget = false;
             var shadow = logoGo.AddComponent<Shadow>();
@@ -314,14 +375,14 @@ public class UIManager : MonoBehaviour
             lrt.anchorMax = new Vector2(0.5f, 0.5f);
             lrt.pivot = new Vector2(0.5f, 0.5f);
             lrt.anchoredPosition = new Vector2(0f, 20f);
-            lrt.sizeDelta = new Vector2(420f, 220f);
+            lrt.sizeDelta = new Vector2(700f, 700f);
         }
         else
         {
             var titleGo = new GameObject("SplashTitle");
-            titleGo.transform.SetParent(splash.transform, false);
+            titleGo.transform.SetParent(content.transform, false);
             var title = titleGo.AddComponent<TextMeshProUGUI>();
-            title.text = startupFallbackTitle;
+            title.text = fallbackTitle;
             title.fontStyle = FontStyles.Bold;
             title.fontSize = 64f;
             title.alignment = TextAlignmentOptions.Center;
@@ -331,23 +392,71 @@ public class UIManager : MonoBehaviour
             trt.anchorMin = new Vector2(0.5f, 0.5f);
             trt.anchorMax = new Vector2(0.5f, 0.5f);
             trt.pivot = new Vector2(0.5f, 0.5f);
-            trt.sizeDelta = new Vector2(700f, 140f);
+            trt.sizeDelta = new Vector2(900f, 220f);
             trt.anchoredPosition = new Vector2(0f, 20f);
         }
 
-        yield return new WaitForSeconds(startupSplashDuration);
+        return content;
+    }
 
-        var cg = splash.AddComponent<CanvasGroup>();
+    IEnumerator CrossFadeSplashContent(GameObject from, GameObject to, float duration)
+    {
+        if (from == null || to == null) yield break;
+
+        var fromCg = from.GetComponent<CanvasGroup>();
+        var toCg = to.GetComponent<CanvasGroup>();
+        if (fromCg == null) fromCg = from.AddComponent<CanvasGroup>();
+        if (toCg == null) toCg = to.AddComponent<CanvasGroup>();
+
         float t = 0f;
-        const float fadeDur = 0.25f;
-        while (t < fadeDur)
+        while (t < duration)
         {
             t += Time.deltaTime;
-            cg.alpha = 1f - Mathf.Clamp01(t / fadeDur);
+            float p = Mathf.Clamp01(t / duration);
+            fromCg.alpha = 1f - p;
+            toCg.alpha = p;
             yield return null;
         }
 
-        Destroy(splash);
+        fromCg.alpha = 0f;
+        toCg.alpha = 1f;
+    }
+
+    bool ShouldShowStartupSplash()
+    {
+        if (!showStartupSplash) return false;
+        if (!showStartupSplashOnlyOncePerInstall) return true;
+        return PlayerPrefs.GetInt(startupSplashSeenKey, 0) == 0;
+    }
+
+    void MarkStartupSplashSeen()
+    {
+        if (!showStartupSplashOnlyOncePerInstall) return;
+        PlayerPrefs.SetInt(startupSplashSeenKey, 1);
+        PlayerPrefs.Save();
+    }
+
+    Sprite ResolveStartupLogo()
+    {
+        return ResolveLogo(startupLogoSprite, startupLogoResourcesPath);
+    }
+
+    static Sprite ResolveLogo(Sprite overrideSprite, string resourcesPath)
+    {
+        if (overrideSprite != null) return overrideSprite;
+        if (string.IsNullOrWhiteSpace(resourcesPath)) return null;
+
+        var sprite = Resources.Load<Sprite>(resourcesPath);
+        if (sprite != null) return sprite;
+
+        var texture = Resources.Load<Texture2D>(resourcesPath);
+        if (texture == null) return null;
+
+        return Sprite.Create(
+            texture,
+            new Rect(0f, 0f, texture.width, texture.height),
+            new Vector2(0.5f, 0.5f),
+            100f);
     }
 
     static Sprite GetOrCreateStartupGradientSprite()
@@ -407,29 +516,38 @@ public class UIManager : MonoBehaviour
         himg.raycastTarget = false;
         if (hideDecorativeBars) himg.enabled = false;
 
-        // Best group — top-left
-        var bestGroup = MakeVerticalGroup(header.transform, "BestGroup");
+        // Best group — top-left (icon + best score in one row)
+        var bestGroup = new GameObject("BestGroup");
+        bestGroup.transform.SetParent(header.transform, false);
+        bestGroup.AddComponent<RectTransform>();
         var bgrt = bestGroup.GetComponent<RectTransform>();
         bgrt.anchorMin        = new Vector2(0f, 1f);
         bgrt.anchorMax        = new Vector2(0f, 1f);
         bgrt.pivot            = new Vector2(0f, 1f);
         bgrt.anchoredPosition = new Vector2(20f, -20f);
-        bgrt.sizeDelta        = new Vector2(220f, 0f);
-        var bgLayout = bestGroup.GetComponent<VerticalLayoutGroup>();
-        bgLayout.childAlignment = TextAnchor.UpperLeft;
-        bgLayout.spacing = 4f;
+        bgrt.sizeDelta        = new Vector2(260f, 56f);
+        var bgLayout = bestGroup.AddComponent<HorizontalLayoutGroup>();
+        bgLayout.childAlignment = TextAnchor.MiddleLeft;
+        bgLayout.spacing = 8f;
+        bgLayout.childForceExpandWidth = false;
+        bgLayout.childForceExpandHeight = false;
 
-        var bestLabel = MakeText(bestGroup.transform, "BestLabel",
-            LocalizationManager.Get(LocalizationManager.Key.Best).ToUpper(),
-            32f, LabelText);
-        bestLabel.characterSpacing = 8f;
-        bestLabel.enableAutoSizing = false;
-        bestLabel.enableWordWrapping = false;
-        bestLabel.overflowMode = TextOverflowModes.Overflow;
-        bestLabel.fontSize = 24f;
-        var bestLabelLayout = bestLabel.gameObject.AddComponent<LayoutElement>();
-        bestLabelLayout.minHeight = 28f;
-        bestLabelLayout.preferredHeight = 28f;
+        var bestIconSprite = ResolveLogo(bestScoreIconSprite, bestScoreIconResourcesPath);
+        var bestIconGo = new GameObject("BestIcon");
+        bestIconGo.transform.SetParent(bestGroup.transform, false);
+        var bestIcon = bestIconGo.AddComponent<Image>();
+        bestIcon.sprite = bestIconSprite;
+        bestIcon.preserveAspect = true;
+        bestIcon.raycastTarget = false;
+        bestIcon.color = bestIconSprite != null ? Color.white : new Color(1f, 1f, 1f, 0f);
+        var bestIconRt = bestIconGo.GetComponent<RectTransform>();
+        bestIconRt.sizeDelta = bestScoreIconSize;
+        var bestIconLayout = bestIconGo.AddComponent<LayoutElement>();
+        const float bestIconH = 44f;
+        bestIconLayout.minWidth = bestIconH;
+        bestIconLayout.minHeight = bestIconH;
+        bestIconLayout.preferredWidth = bestIconH;
+        bestIconLayout.preferredHeight = bestIconH;
 
         bestValueText = MakeText(bestGroup.transform, "BestValue", "0", 44f, PrimaryText);
         bestValueText.fontStyle = FontStyles.Bold;
@@ -437,9 +555,12 @@ public class UIManager : MonoBehaviour
         bestValueText.enableWordWrapping = false;
         bestValueText.overflowMode = TextOverflowModes.Overflow;
         bestValueText.fontSize = 40f;
+        bestValueText.alignment = TextAlignmentOptions.MidlineLeft;
         var bestValueLayout = bestValueText.gameObject.AddComponent<LayoutElement>();
-        bestValueLayout.minHeight = 48f;
-        bestValueLayout.preferredHeight = 48f;
+        bestValueLayout.minHeight = 44f;
+        bestValueLayout.preferredHeight = 44f;
+        bestValueLayout.minWidth = 160f;
+        bestValueLayout.preferredWidth = 160f;
 
         // Score group — centered
         var scoreGroup = MakeVerticalGroup(header.transform, "ScoreGroup");
@@ -844,17 +965,16 @@ public class UIManager : MonoBehaviour
         hlg.childForceExpandWidth  = false;
         hlg.childForceExpandHeight = false;
 
-        var bestLbl = new GameObject("BestLabel");
+        var bestLbl = new GameObject("BestIcon");
         bestLbl.transform.SetParent(bestRow.transform, false);
-        var blTmp             = bestLbl.AddComponent<TextMeshProUGUI>();
-        blTmp.text            = LocalizationManager.Get(LocalizationManager.Key.Best).ToUpper();
-        blTmp.fontSize        = 14f;
-        blTmp.fontStyle       = FontStyles.Bold;
-        blTmp.color           = LabelText;
-        blTmp.characterSpacing = 16f;
-        blTmp.alignment       = TextAlignmentOptions.Center;
+        var bestRowIcon = bestLbl.AddComponent<Image>();
+        var bestRowIconSprite = ResolveLogo(bestScoreIconSprite, bestScoreIconResourcesPath);
+        bestRowIcon.sprite = bestRowIconSprite;
+        bestRowIcon.preserveAspect = true;
+        bestRowIcon.raycastTarget = false;
+        bestRowIcon.color = bestRowIconSprite != null ? Color.white : new Color(1f, 1f, 1f, 0f);
         var blSd = bestLbl.AddComponent<LayoutElement>();
-        blSd.preferredWidth  = 70f;
+        blSd.preferredWidth  = 40f;
         blSd.preferredHeight = 40f;
 
         var bestVal = new GameObject("BestValue");
@@ -905,41 +1025,6 @@ public class UIManager : MonoBehaviour
             btnRt.sizeDelta        = new Vector2(420f, 72f);
         }
 
-        // ── Secondary CTA: "Ana Menü" ─────────────────────────────────────────
-        // 300×56 — ghost pill style, subtler than primary
-        // TODO: replace RestartGame() with main menu scene load when one exists
-        var menuBtnGo = new GameObject("MainMenuButton");
-        menuBtnGo.transform.SetParent(_gameOverCard.transform, false);
-        var menuBtnImg = menuBtnGo.AddComponent<Image>();
-        menuBtnImg.color = new Color(1f, 1f, 1f, 0.08f);
-        _mainMenuButton = menuBtnGo.AddComponent<Button>();
-        var menuColors = _mainMenuButton.colors;
-        menuColors.normalColor      = new Color(1f, 1f, 1f, 0.08f);
-        menuColors.highlightedColor = new Color(1f, 1f, 1f, 0.18f);
-        menuColors.pressedColor     = new Color(1f, 1f, 1f, 0.30f);
-        _mainMenuButton.colors = menuColors;
-        _mainMenuButton.onClick.AddListener(() => GameManager.Instance.RestartGame());
-        var menuRt = menuBtnGo.GetComponent<RectTransform>();
-        menuRt.anchorMin        = new Vector2(0.5f, 0f);
-        menuRt.anchorMax        = new Vector2(0.5f, 0f);
-        menuRt.pivot            = new Vector2(0.5f, 0f);
-        menuRt.anchoredPosition = new Vector2(0f, 28f);
-        menuRt.sizeDelta        = new Vector2(300f, 56f);
-
-        var menuLabelGo = new GameObject("MainMenuLabel");
-        menuLabelGo.transform.SetParent(menuBtnGo.transform, false);
-        _mainMenuLabel           = menuLabelGo.AddComponent<TextMeshProUGUI>();
-        _mainMenuLabel.text      = LocalizationManager.Get(LocalizationManager.Key.MainMenu);
-        _mainMenuLabel.fontSize  = 16f;
-        _mainMenuLabel.fontStyle = FontStyles.Bold;
-        _mainMenuLabel.alignment = TextAlignmentOptions.Center;
-        _mainMenuLabel.color     = new Color(1f, 1f, 1f, 0.65f);
-        var menuLabelRt = menuLabelGo.GetComponent<RectTransform>();
-        menuLabelRt.anchorMin = Vector2.zero;
-        menuLabelRt.anchorMax = Vector2.one;
-        menuLabelRt.offsetMin = Vector2.zero;
-        menuLabelRt.offsetMax = Vector2.zero;
-
         // ── Confetti layer (above card, for New Best burst) ───────────────────
         var confettiGo = new GameObject("ConfettiLayer");
         confettiGo.transform.SetParent(gameOverPanel.transform, false);
@@ -961,12 +1046,6 @@ public class UIManager : MonoBehaviour
             _restartLabel.color     = BtnTextColor;
             _restartLabel.fontStyle = FontStyles.Bold;
             _restartLabel.fontSize  = 18f;
-        }
-
-        if (_mainMenuLabel)
-        {
-            _mainMenuLabel.text  = LocalizationManager.Get(LocalizationManager.Key.MainMenu);
-            _mainMenuLabel.color = new Color(1f, 1f, 1f, 0.65f);
         }
 
         if (_langLabel)

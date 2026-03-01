@@ -339,6 +339,7 @@ public class GridManager : MonoBehaviour
         foreach (var sq in squareObjects)
             StartCoroutine(SquareBounce(sq));
         TriggerBoardShake();
+        OnBlockPlaced();
 
         var fullRows = FindFullRows();
         var fullCols = FindFullCols();
@@ -367,12 +368,39 @@ public class GridManager : MonoBehaviour
                 yield return StartCoroutine(FlashAndClear(fullRows, fullCols));
 
             AudioManager.Instance?.PlayClear();
+            OnLineCleared(cleared);
+            if (cleared > 1)
+                OnCombo();
         }
 
         // Inform SmartSpawnController so it can track line-clear drought for mercy mode.
         SmartSpawnController.NotifyLinesCleared(cleared);
 
         GameManager.Instance?.AddScore(offsets.Length, cleared, scoreMultiplier);
+    }
+
+    // Visual polish hook:
+    // Called immediately after a block is committed to the board.
+    // Use this for haptics / placement sound layering.
+    void OnBlockPlaced()
+    {
+        // TODO: Add custom placement haptic + layered placement SFX here.
+    }
+
+    // Visual polish hook:
+    // Called when at least one row/column is cleared in a move.
+    // Use this for clear particles and screen accents.
+    void OnLineCleared(int linesCleared)
+    {
+        // TODO: Spawn line-clear particles, glow trails, etc.
+    }
+
+    // Visual polish hook:
+    // Called on multi-line clear in one move.
+    // Use this for "Mega Bang" UI feedback and combo-specific effects.
+    void OnCombo()
+    {
+        // TODO: Trigger combo UI banner, extra shake pulse, and combo SFX.
     }
 
     // ── Line detection ────────────────────────────────────────────────────────

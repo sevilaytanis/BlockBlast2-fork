@@ -1,330 +1,167 @@
+using System;
 using System.Collections.Generic;
 using UnityEngine;
 
-// Pure static data - no MonoBehaviour needed.
-// All shapes use (col, row) offsets with (0,0) at the bottom-left of each bounding box.
-// ASCII diagrams show the shape as it appears on screen (row 0 at bottom, █ = filled, · = empty).
-//
-// Pool design rationale (casual Block Blast retention):
-//   3-cell (~35-40 %) — easy to fit anywhere; rewards quick decisions; prevents early dead-ends
-//   4-cell (~40-45 %) — bread-and-butter; familiar from Tetris family; good line-clear density
-//   5-cell (~15-30 %) — exciting, high-score moments; occasional challenge spike; not so large
-//                       that placement becomes frustrating on an 8×8 grid
-//   See SpawnController for exact per-score-tier weights.
-// All rotations/mirrors of each canonical shape are separate entries because the player
-// sees the piece as-is and cannot rotate during gameplay.
+public enum PieceDifficulty
+{
+    Simple,
+    Medium,
+    Hard
+}
+
+public sealed class PieceDefinition
+{
+    public string Id { get; }
+    public int[,] Matrix { get; }
+    public Vector2Int[] Offsets { get; }
+    public PieceDifficulty Difficulty { get; }
+    public int CellCount => Offsets.Length;
+
+    public PieceDefinition(string id, int[,] matrix, Vector2Int[] offsets, PieceDifficulty difficulty)
+    {
+        Id = id;
+        Matrix = matrix;
+        Offsets = offsets;
+        Difficulty = difficulty;
+    }
+}
+
+// Matrix-driven piece catalog for Block Puzzle.
+// Matrix rows are defined top -> bottom. Runtime offsets are converted to grid space
+// with (0,0) at bottom-left so they match GridManager and placement math.
 public static class BlockShapes
 {
-    // ── Constraint ────────────────────────────────────────────────────────────
-    public const int MinCells = 3;  // no 1-cell or 2-cell pieces ever spawn
+    public const int MinCells = 1;
 
-    // ── Shape catalogue (30 shapes) ───────────────────────────────────────────
-    public static readonly Vector2Int[][] All = new Vector2Int[][]
-    {
-        // ════════════════════════════════════════════════════════════════════
-        //  3-CELL SHAPES  (6 shapes)
-        //  Easy to place, high board survival, good for new players.
-        // ════════════════════════════════════════════════════════════════════
+    public static readonly PieceDefinition[] Definitions;
+    public static readonly Vector2Int[][] All;
+    public static readonly Color[] Colors = ColorPalette.Blocks;
 
-        // I3 — straight trominoes
-        // ███
-        new[] { new Vector2Int(0,0), new Vector2Int(1,0), new Vector2Int(2,0) },            // I3H
-
-        // █
-        // █
-        // █
-        new[] { new Vector2Int(0,0), new Vector2Int(0,1), new Vector2Int(0,2) },            // I3V
-
-        // Corner-3 — all 4 rotations of the 3-cell L/corner shape
-        // ·█   row1
-        // ██   row0
-        new[] { new Vector2Int(0,0), new Vector2Int(1,0), new Vector2Int(0,1) },            // C3_A
-
-        // █·   row1
-        // ██   row0
-        new[] { new Vector2Int(0,0), new Vector2Int(1,0), new Vector2Int(1,1) },            // C3_B
-
-        // ██   row1
-        // █·   row0
-        new[] { new Vector2Int(0,0), new Vector2Int(0,1), new Vector2Int(1,1) },            // C3_C
-
-        // ██   row1
-        // ·█   row0
-        new[] { new Vector2Int(1,0), new Vector2Int(0,1), new Vector2Int(1,1) },            // C3_D
-
-        // ════════════════════════════════════════════════════════════════════
-        //  4-CELL SHAPES  (19 shapes)
-        //  Core gameplay loop.  All tetrominoes + all their rotations.
-        // ════════════════════════════════════════════════════════════════════
-
-        // I4 — long bars (very satisfying line-clear potential)
-        // ████
-        new[] { new Vector2Int(0,0), new Vector2Int(1,0), new Vector2Int(2,0), new Vector2Int(3,0) },  // I4H
-
-        // █
-        // █
-        // █
-        // █
-        new[] { new Vector2Int(0,0), new Vector2Int(0,1), new Vector2Int(0,2), new Vector2Int(0,3) },  // I4V
-
-        // O4 — 2×2 square (always fits in any 2×2 opening)
-        // ██
-        // ██
-        new[] { new Vector2Int(0,0), new Vector2Int(1,0), new Vector2Int(0,1), new Vector2Int(1,1) },  // O4
-
-        // T4 — all 4 rotations
-        // ·█·
-        // ███
-        new[] { new Vector2Int(0,0), new Vector2Int(1,0), new Vector2Int(2,0), new Vector2Int(1,1) },  // T4_up
-
-        // ███
-        // ·█·
-        new[] { new Vector2Int(1,0), new Vector2Int(0,1), new Vector2Int(1,1), new Vector2Int(2,1) },  // T4_down
-
-        // ·█
-        // ██
-        // ·█
-        new[] { new Vector2Int(1,0), new Vector2Int(0,1), new Vector2Int(1,1), new Vector2Int(1,2) },  // T4_right
-
-        // █·
-        // ██
-        // █·
-        new[] { new Vector2Int(0,0), new Vector2Int(0,1), new Vector2Int(1,1), new Vector2Int(0,2) },  // T4_left
-
-        // S4 — skew shapes, horizontal and vertical
-        // ·██
-        // ██·
-        new[] { new Vector2Int(0,0), new Vector2Int(1,0), new Vector2Int(1,1), new Vector2Int(2,1) },  // S4H
-
-        // █·
-        // ██
-        // ·█
-        new[] { new Vector2Int(1,0), new Vector2Int(0,1), new Vector2Int(1,1), new Vector2Int(0,2) },  // S4V
-
-        // Z4 — mirror of S4, horizontal and vertical
-        // ██·
-        // ·██
-        new[] { new Vector2Int(1,0), new Vector2Int(2,0), new Vector2Int(0,1), new Vector2Int(1,1) },  // Z4H
-
-        // ·█
-        // ██
-        // █·
-        new[] { new Vector2Int(0,0), new Vector2Int(0,1), new Vector2Int(1,1), new Vector2Int(1,2) },  // Z4V
-
-        // L4 — all 4 rotations
-        // █·
-        // █·
-        // ██
-        new[] { new Vector2Int(0,0), new Vector2Int(1,0), new Vector2Int(0,1), new Vector2Int(0,2) },  // L4_0
-
-        // █··
-        // ███
-        new[] { new Vector2Int(0,0), new Vector2Int(1,0), new Vector2Int(2,0), new Vector2Int(0,1) },  // L4_1
-
-        // ██
-        // ·█
-        // ·█
-        new[] { new Vector2Int(1,0), new Vector2Int(1,1), new Vector2Int(0,2), new Vector2Int(1,2) },  // L4_2
-
-        // ███
-        // ··█
-        new[] { new Vector2Int(2,0), new Vector2Int(0,1), new Vector2Int(1,1), new Vector2Int(2,1) },  // L4_3
-
-        // J4 — all 4 rotations (mirror of L4)
-        // ·█
-        // ·█
-        // ██
-        new[] { new Vector2Int(0,0), new Vector2Int(1,0), new Vector2Int(1,1), new Vector2Int(1,2) },  // J4_0
-
-        // ███
-        // █··
-        new[] { new Vector2Int(0,0), new Vector2Int(0,1), new Vector2Int(1,1), new Vector2Int(2,1) },  // J4_1
-
-        // ██
-        // █·
-        // █·
-        new[] { new Vector2Int(0,0), new Vector2Int(0,1), new Vector2Int(0,2), new Vector2Int(1,2) },  // J4_2
-
-        // ··█
-        // ███
-        new[] { new Vector2Int(0,0), new Vector2Int(1,0), new Vector2Int(2,0), new Vector2Int(2,1) },  // J4_3
-
-        // ════════════════════════════════════════════════════════════════════
-        //  5-CELL SHAPES  (2 shapes)
-        //  Long bars only — seen in reference screenshots.
-        // ════════════════════════════════════════════════════════════════════
-
-        // I5 — long bars (clears an entire row/column when it fits)
-        // █████
-        new[] { new Vector2Int(0,0), new Vector2Int(1,0), new Vector2Int(2,0),
-                new Vector2Int(3,0), new Vector2Int(4,0) },                                 // I5H
-
-        // █ (5 tall)
-        new[] { new Vector2Int(0,0), new Vector2Int(0,1), new Vector2Int(0,2),
-                new Vector2Int(0,3), new Vector2Int(0,4) },                                 // I5V
-
-        // ════════════════════════════════════════════════════════════════════
-        //  6-CELL SHAPES  (2 shapes)
-        //  Compact rectangles — seen in real Block Blast screenshots.
-        // ════════════════════════════════════════════════════════════════════
-
-        // R2x3 — 2 columns × 3 rows rectangle
-        // ██
-        // ██
-        // ██
-        new[] { new Vector2Int(0,0), new Vector2Int(1,0),
-                new Vector2Int(0,1), new Vector2Int(1,1),
-                new Vector2Int(0,2), new Vector2Int(1,2) },                                 // R2x3
-
-        // R3x2 — 3 columns × 2 rows rectangle
-        // ███
-        // ███
-        new[] { new Vector2Int(0,0), new Vector2Int(1,0), new Vector2Int(2,0),
-                new Vector2Int(0,1), new Vector2Int(1,1), new Vector2Int(2,1) },            // R3x2
-
-        // ════════════════════════════════════════════════════════════════════
-        //  9-CELL SHAPE  (1 shape)
-        //  3×3 solid square — the most satisfying piece in Block Blast.
-        //  Potential to clear 2 rows + 2 columns simultaneously on a full board.
-        // ════════════════════════════════════════════════════════════════════
-
-        // O9 — 3×3 square
-        // ███
-        // ███
-        // ███
-        new[] { new Vector2Int(0,0), new Vector2Int(1,0), new Vector2Int(2,0),
-                new Vector2Int(0,1), new Vector2Int(1,1), new Vector2Int(2,1),
-                new Vector2Int(0,2), new Vector2Int(1,2), new Vector2Int(2,2) },            // O9
-    };
-
-    // ── Validated spawn pool ─────────────────────────────────────────────────
-    // Built once at class load.  Contains only shapes where Length >= MinCells.
-    // GetRandom() always draws from this pool — never from All directly.
-    private static readonly Vector2Int[][] _validShapes;
+    static readonly Dictionary<string, PieceDefinition> _definitionByKey = new Dictionary<string, PieceDefinition>();
 
     static BlockShapes()
     {
-        var valid = new List<Vector2Int[]>();
-        var seen  = new HashSet<string>();  // duplicate detection
+        var defs = new List<PieceDefinition>();
 
-        for (int i = 0; i < All.Length; i++)
+        // Sticks: 1x2, 1x3, 1x4, 1x5 (H + V)
+        Add(defs, "stick_1x2_h", M("11"), PieceDifficulty.Simple);
+        Add(defs, "stick_1x2_v", M("1", "1"), PieceDifficulty.Simple);
+        Add(defs, "stick_1x3_h", M("111"), PieceDifficulty.Medium);
+        Add(defs, "stick_1x3_v", M("1", "1", "1"), PieceDifficulty.Medium);
+        Add(defs, "stick_1x4_h", M("1111"), PieceDifficulty.Medium);
+        Add(defs, "stick_1x4_v", M("1", "1", "1", "1"), PieceDifficulty.Medium);
+        Add(defs, "stick_1x5_h", M("11111"), PieceDifficulty.Hard);
+        Add(defs, "stick_1x5_v", M("1", "1", "1", "1", "1"), PieceDifficulty.Hard);
+
+        // Squares: 2x2, 3x3
+        Add(defs, "square_2x2", M("11", "11"), PieceDifficulty.Simple);
+        Add(defs, "square_3x3", M("111", "111", "111"), PieceDifficulty.Hard);
+
+        // L-shape 2x2 (all rotations)
+        Add(defs, "l2_r0", M("10", "11"), PieceDifficulty.Medium);
+        Add(defs, "l2_r1", M("11", "10"), PieceDifficulty.Medium);
+        Add(defs, "l2_r2", M("11", "01"), PieceDifficulty.Medium);
+        Add(defs, "l2_r3", M("01", "11"), PieceDifficulty.Medium);
+
+        // Large L 3x3 (all rotations)
+        Add(defs, "l3_r0", M("100", "100", "111"), PieceDifficulty.Medium);
+        Add(defs, "l3_r1", M("111", "100", "100"), PieceDifficulty.Medium);
+        Add(defs, "l3_r2", M("111", "001", "001"), PieceDifficulty.Medium);
+        Add(defs, "l3_r3", M("001", "001", "111"), PieceDifficulty.Medium);
+
+        // T & Z (non-rotating)
+        Add(defs, "t_std", M("111", "010"), PieceDifficulty.Medium);
+        Add(defs, "z_std", M("110", "011"), PieceDifficulty.Medium);
+
+        Definitions = defs.ToArray();
+        All = new Vector2Int[Definitions.Length][];
+        for (int i = 0; i < Definitions.Length; i++)
         {
-            var shape = All[i];
-
-            // ── MinCells check ───────────────────────────────────────────────
-            if (shape.Length < MinCells)
-            {
-                Debug.LogWarning(
-                    $"[BlockShapes] All[{i}] has {shape.Length} cell(s) " +
-                    $"(< MinCells={MinCells}) — excluded from spawn pool.");
-                continue;
-            }
-
-            // ── Connectivity check (4-neighbour BFS) ─────────────────────────
-            if (!IsConnected(shape))
-            {
-                Debug.LogWarning(
-                    $"[BlockShapes] All[{i}] ({shape.Length}-cell) is disconnected " +
-                    $"— excluded from spawn pool.");
-                continue;
-            }
-
-            // ── Duplicate check ──────────────────────────────────────────────
-            string key = CanonicalKey(shape);
-            if (!seen.Add(key))
-            {
-                Debug.LogWarning(
-                    $"[BlockShapes] All[{i}] is a duplicate of an earlier shape " +
-                    $"(key: {key}) — excluded from spawn pool.");
-                continue;
-            }
-
-            valid.Add(shape);
+            All[i] = Definitions[i].Offsets;
+            _definitionByKey[CanonicalKey(Definitions[i].Offsets)] = Definitions[i];
         }
 
-        if (valid.Count == 0)
-            Debug.LogError("[BlockShapes] Spawn pool is empty!  " +
-                           "All shapes were filtered out.  Check BlockShapes.All.");
-
-        _validShapes = valid.ToArray();
-
-        // Per-size breakdown for tuning / Editor verification
-        int n3 = 0, n4 = 0, n5 = 0, n6 = 0, n9plus = 0;
-        foreach (var s in _validShapes)
-        {
-            if      (s.Length == 3) n3++;
-            else if (s.Length == 4) n4++;
-            else if (s.Length == 5) n5++;
-            else if (s.Length <= 8) n6++;
-            else                    n9plus++;
-        }
-
-        Debug.Log($"[BlockShapes] Spawn pool ready: {_validShapes.Length} shapes " +
-                  $"— 3-cell:{n3}  4-cell:{n4}  5-cell:{n5}  6-8-cell:{n6}  9+-cell:{n9plus}  (MinCells={MinCells}).");
+        Debug.Log($"[BlockShapes] Matrix catalog ready: {Definitions.Length} pieces.");
     }
 
-    // ── Public API ───────────────────────────────────────────────────────────
-
-    // Renk paleti — ColorPalette.Blocks ile senkron (7 renk, Silver kaldırıldı).
-    public static readonly Color[] Colors = ColorPalette.Blocks;
-
-    /// Returns a random shape from the validated pool.
-    /// Always >= MinCells cells; never a duplicate.
-    /*public static Vector2Int[] GetRandom()
-        => _validShapes[Random.Range(0, _validShapes.Length)];
-
-*/
     public static Vector2Int[] GetRandom()
     {
-        var src = _validShapes[Random.Range(0, _validShapes.Length)];
+        var src = All[UnityEngine.Random.Range(0, All.Length)];
         var copy = new Vector2Int[src.Length];
-        System.Array.Copy(src, copy, src.Length);
+        Array.Copy(src, copy, src.Length);
         return copy;
     }
+
     public static Color GetRandomColor()
-        => Colors[Random.Range(0, Colors.Length)];
+        => Colors[UnityEngine.Random.Range(0, Colors.Length)];
 
-    // ── Private helpers ───────────────────────────────────────────────────────
+    public static PieceDefinition GetDefinitionByOffsets(Vector2Int[] offsets)
+    {
+        if (offsets == null || offsets.Length == 0) return null;
+        _definitionByKey.TryGetValue(CanonicalKey(offsets), out var def);
+        return def;
+    }
 
-    // Produces a sorted, order-independent string key for duplicate detection.
-    // Two shapes are duplicates if they contain the exact same set of coordinates.
-    static string CanonicalKey(Vector2Int[] shape)
+    public static string CanonicalKey(Vector2Int[] shape)
     {
         var parts = new string[shape.Length];
         for (int i = 0; i < shape.Length; i++)
             parts[i] = shape[i].x + "," + shape[i].y;
-        System.Array.Sort(parts, System.StringComparer.Ordinal);
+        Array.Sort(parts, StringComparer.Ordinal);
         return string.Join("|", parts);
     }
 
-    // 4-neighbour BFS connectivity check.
-    // Returns false if any cell is unreachable from shape[0], which would indicate
-    // a floating isolated cell — a bug in the shape definition.
-    static bool IsConnected(Vector2Int[] shape)
+    static void Add(List<PieceDefinition> defs, string id, int[,] matrix, PieceDifficulty difficulty)
     {
-        var cellSet = new HashSet<Vector2Int>(shape);
-        var visited = new HashSet<Vector2Int>();
-        var queue   = new Queue<Vector2Int>();
+        var offsets = MatrixToOffsets(matrix);
+        defs.Add(new PieceDefinition(id, matrix, offsets, difficulty));
+    }
 
-        queue.Enqueue(shape[0]);
-        visited.Add(shape[0]);
+    static int[,] M(params string[] rowsTopToBottom)
+    {
+        if (rowsTopToBottom == null || rowsTopToBottom.Length == 0)
+            throw new ArgumentException("Matrix must have at least one row.");
 
-        while (queue.Count > 0)
+        int h = rowsTopToBottom.Length;
+        int w = rowsTopToBottom[0].Length;
+        if (w == 0)
+            throw new ArgumentException("Matrix rows cannot be empty.");
+
+        var matrix = new int[h, w];
+        for (int r = 0; r < h; r++)
         {
-            var c = queue.Dequeue();
-            foreach (var n in new[]
+            if (rowsTopToBottom[r].Length != w)
+                throw new ArgumentException("All matrix rows must have equal width.");
+
+            for (int c = 0; c < w; c++)
             {
-                new Vector2Int(c.x + 1, c.y),
-                new Vector2Int(c.x - 1, c.y),
-                new Vector2Int(c.x,     c.y + 1),
-                new Vector2Int(c.x,     c.y - 1),
-            })
+                char ch = rowsTopToBottom[r][c];
+                matrix[r, c] = ch == '1' ? 1 : 0;
+            }
+        }
+        return matrix;
+    }
+
+    static Vector2Int[] MatrixToOffsets(int[,] matrix)
+    {
+        int h = matrix.GetLength(0);
+        int w = matrix.GetLength(1);
+        var result = new List<Vector2Int>(h * w);
+
+        // Row 0 is top in matrix; convert to bottom-left origin used by GridManager.
+        for (int r = 0; r < h; r++)
+        {
+            for (int c = 0; c < w; c++)
             {
-                if (cellSet.Contains(n) && visited.Add(n))
-                    queue.Enqueue(n);
+                if (matrix[r, c] == 0) continue;
+                int y = h - 1 - r;
+                result.Add(new Vector2Int(c, y));
             }
         }
 
-        return visited.Count == shape.Length;
+        if (result.Count == 0)
+            throw new ArgumentException("Piece matrix must contain at least one filled cell.");
+
+        return result.ToArray();
     }
 }
