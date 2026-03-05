@@ -24,7 +24,7 @@
                                 <rect key="frame" x="0.0" y="370" width="393" height="482"/>
                                 <color key="backgroundColor" red="0.1019607843" green="0.1215686275" blue="0.1686274510" alpha="1" colorSpace="custom" customColorSpace="sRGB"/>
                             </view>
-                            <label opaque="NO" userInteractionEnabled="NO" contentMode="left" horizontalHuggingPriority="251" verticalHuggingPriority="251" text="BLOCK BANG LAUNCH" textAlignment="center" lineBreakMode="tailTruncation" baselineAdjustment="alignBaselines" adjustsFontSizeToFit="NO" translatesAutoresizingMaskIntoConstraints="NO" id="logo-label">
+                            <label opaque="NO" userInteractionEnabled="NO" contentMode="left" horizontalHuggingPriority="251" verticalHuggingPriority="251" text="BOOmix Game" textAlignment="center" lineBreakMode="tailTruncation" baselineAdjustment="alignBaselines" adjustsFontSizeToFit="NO" translatesAutoresizingMaskIntoConstraints="NO" id="logo-label">
                                 <rect key="frame" x="46.5" y="380" width="300" height="72"/>
                                 <fontDescription key="fontDescription" type="boldSystem" pointSize="48"/>
                                 <color key="textColor" white="1" alpha="0.96" colorSpace="custom" customColorSpace="genericGamma22GrayColorSpace"/>

@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//Users/sevilaytanis/**)"
+    ],
+    "additionalDirectories": [
+      "/Users/sevilaytanis/BlockBlastIOS/Unity-iPhone.xcodeproj"
+    ]
+  }
+}
