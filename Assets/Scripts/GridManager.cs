@@ -78,6 +78,11 @@ public class GridManager : MonoBehaviour
         BuildBoardContainer(); // sortingOrder -3/-4 — must precede BuildBackground (-2)
         BuildBackground();
         BuildTrayContainer();  // reads updated TrayManager.slotPositions (set in step 1)
+
+        if (ComboManager.Instance == null)
+            new GameObject("ComboManager").AddComponent<ComboManager>();
+        if (VFXManager.Instance == null)
+            new GameObject("VFXManager").AddComponent<VFXManager>();
     }
 
     void EnsureVisualRoots()
@@ -341,26 +346,19 @@ public class GridManager : MonoBehaviour
         TriggerBoardShake();
         OnBlockPlaced();
 
-        var fullRows = FindFullRows();
-        var fullCols = FindFullCols();
-        int cleared  = fullRows.Count + fullCols.Count;
+        ComboManager.LineCheckResult lineResult;
+        if (ComboManager.Instance != null)
+            lineResult = ComboManager.Instance.CheckLines(this);
+        else
+            lineResult = ComboManager.LineCheckResult.FromFallback(this, FindFullRows(), FindFullCols());
 
-        float scoreMultiplier = 1f;
+        var fullRows = lineResult.FullRows;
+        var fullCols = lineResult.FullCols;
+        int cleared = lineResult.TotalLines;
 
         if (cleared > 0)
         {
-            // Kaç hücre temizlendi (kesişimler bir kez sayılır)
-            int cellsCleared = fullRows.Count * columns + fullCols.Count * rows
-                               - fullRows.Count * fullCols.Count;
-
-            // Tier: 0=normal, 1=Big Bang (9-15), 2=Mega Bang (16-21), 3=Ultra Bang (22+)
-            int clearTier = cellsCleared <= 8  ? 0
-                          : cellsCleared <= 15 ? 1
-                          : cellsCleared <= 21 ? 2 : 3;
-
-            scoreMultiplier = clearTier == 0 ? 1f
-                            : clearTier == 1 ? 2f
-                            : clearTier == 2 ? 3f : 4f;
+            int clearTier = lineResult.ClearTier;
 
             if (clearTier > 0)
                 yield return StartCoroutine(BigFlashAndClear(fullRows, fullCols, clearTier));
@@ -375,8 +373,10 @@ public class GridManager : MonoBehaviour
 
         // Inform SmartSpawnController so it can track line-clear drought for mercy mode.
         SmartSpawnController.NotifyLinesCleared(cleared);
-
-        GameManager.Instance?.AddScore(offsets.Length, cleared, scoreMultiplier);
+        if (ComboManager.Instance != null)
+            ComboManager.Instance.OnMoveResolved(offsets.Length, lineResult);
+        else
+            GameManager.Instance?.AddScore(offsets.Length, cleared, lineResult.BaseMultiplier);
     }
 
     // Visual polish hook:
