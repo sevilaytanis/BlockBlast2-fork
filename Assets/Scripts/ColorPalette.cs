@@ -1,38 +1,51 @@
 using UnityEngine;
 
 // Merkezi renk kataloğu — tüm renk referansları buradan alınır.
-//
-// Blok paleti tasarım ilkeleri:
-//   - 7 renk, hue dönüşümü tam tur (0°→339°) — eşit aralıklı değil, algısal aralıklı.
-//   - Her renk için minimum 22° hue ayrışması + luminance farkı > 15 birim.
-//   - Renk körlüğü (deuteranopia/protanopia) senaryosunda 5/7 renk ayırt edilebilir.
-//   - sRGB gamma alanında; Unity SpriteRenderer doğrudan kullanabilir.
-//
-// Hue dağılımı:
-//   Coral   0°   Lum≈48  ●
-//   Orange 27°   Lum≈53  ●
-//   Yellow 52°   Lum≈72  ●  ← en parlak, kolayca ayırt edilir
-//   Mint  163°   Lum≈54  ●  ← büyük boşluk (warm→cool geçişi)
-//   Blue  218°   Lum≈46  ●
-//   Violet 269°  Lum≈44  ●
-//   Pink  339°   Lum≈55  ●
+// Renkler önce Resources/BlockPalette.asset'ten yüklenir (BlockPaletteData ScriptableObject).
+// Asset bulunamazsa aşağıdaki _fallbackColors kullanılır.
+// Asset panelinden düzenlemek için: Assets → Resources → BlockPalette
 //
 public static class ColorPalette
 {
+    // ── ScriptableObject palette yükleme ─────────────────────────────────────
+    private static BlockPaletteData _paletteData;
+
+    public static BlockPaletteData PaletteData
+    {
+        get
+        {
+            if (_paletteData == null)
+                _paletteData = Resources.Load<BlockPaletteData>("BlockPalette");
+            return _paletteData;
+        }
+    }
+
+    // Fallback — BlockPalette.asset bulunamazsa kullanılır.
+    private static readonly Color[] _fallbackColors = new Color[]
+    {
+        new Color(0.60f, 0.10f, 1.00f, 1f), // Neon Violet
+        new Color(0.10f, 0.88f, 0.20f, 1f), // Bright Green
+        new Color(0.12f, 0.44f, 1.00f, 1f), // Deep Blue
+        new Color(1.00f, 0.48f, 0.04f, 1f), // Bright Orange
+        new Color(1.00f, 0.12f, 0.18f, 1f), // Fire Red
+        new Color(1.00f, 0.22f, 0.76f, 1f), // Hot Pink
+        new Color(0.72f, 1.00f, 0.04f, 1f), // Neon Lime
+    };
+
     // ── Blok renk paleti ─────────────────────────────────────────────────────
     // TrayManager / BlockShapes tarafından kullanılır.
-    // Silver kaldırıldı — düşük doygunluk diğer renklerle kontrast oluşturmuyor.
+    // Renkleri değiştirmek için Unity editöründe Assets/Resources/BlockPalette assetini aç.
 
-    public static readonly Color[] Blocks = new Color[]
+    public static Color[] Blocks
     {
-        new Color(1.000f, 0.322f, 0.322f), // Coral   #FF5252  hue  0°  lum≈48
-        new Color(1.000f, 0.549f, 0.000f), // Orange  #FF8C00  hue 27°  lum≈53
-        new Color(1.000f, 0.878f, 0.000f), // Yellow  #FFE000  hue 52°  lum≈72
-        new Color(0.000f, 0.784f, 0.588f), // Mint    #00C896  hue163°  lum≈54
-        new Color(0.161f, 0.475f, 1.000f), // Blue    #2979FF  hue218°  lum≈46
-        new Color(0.612f, 0.302f, 1.000f), // Violet  #9C4DFF  hue269°  lum≈44
-        new Color(1.000f, 0.251f, 0.506f), // Pink    #FF4081  hue339°  lum≈55
-    };
+        get
+        {
+            var p = PaletteData;
+            return (p != null && p.blockColors != null && p.blockColors.Length > 0)
+                ? p.blockColors
+                : _fallbackColors;
+        }
+    }
 
     // ── Board / UI renkleri ──────────────────────────────────────────────────
 
@@ -58,7 +71,10 @@ public static class ColorPalette
     // ── Yardımcı ─────────────────────────────────────────────────────────────
 
     public static Color GetRandomBlock()
-        => Blocks[Random.Range(0, Blocks.Length)];
+    {
+        var blocks = Blocks;
+        return blocks[Random.Range(0, blocks.Length)];
+    }
 
     // Rengi tray ölçeğine (0–1) göre doygunluk artırır — küçük parçalarda renk soluk görünüyor.
     // s=1: değişmez, s=1.15: %15 daha canlı (HSV doygunluğunu klamp ederek).

@@ -38,6 +38,7 @@ public class GridManager : MonoBehaviour
     // _grid[col, row] = placed square GameObject, or null when empty
     private GameObject[,] _grid;
     private static Sprite _cachedSprite;
+    private static Sprite _cachedBoardGradientSprite;
 
     private Transform _boardVisualRoot;
     private Transform _boardContainerRoot;
@@ -45,6 +46,8 @@ public class GridManager : MonoBehaviour
     private Coroutine _boardShakeRoutine;
     private Rect _trayBoundsWorld;
     private bool _hasTrayBounds;
+    private SpriteRenderer[,] _bgRim;
+    private SpriteRenderer[,] _bgFill;
 
     struct PreviewCellVisual
     {
@@ -60,10 +63,17 @@ public class GridManager : MonoBehaviour
 
     // ── Unity lifecycle ───────────────────────────────────────────────────────
 
+    [Header("Color Palette (opsiyonel — boş bırakılırsa Resources/BlockPalette yüklenir)")]
+    [SerializeField] private BlockPaletteData colorPalette;
+
     void Awake()
     {
         Instance = this;
         _grid    = new GameObject[columns, rows];
+        _bgRim   = new SpriteRenderer[columns, rows];
+        _bgFill  = new SpriteRenderer[columns, rows];
+        if (colorPalette == null)
+            colorPalette = ColorPalette.PaletteData;
         // Visual building deferred to Start() so ComputeResponsiveLayout() can run first.
     }
 
@@ -79,10 +89,16 @@ public class GridManager : MonoBehaviour
         BuildBackground();
         BuildTrayContainer();  // reads updated TrayManager.slotPositions (set in step 1)
 
+        if (InputManager.Instance == null)
+            new GameObject("InputManager").AddComponent<InputManager>();
         if (ComboManager.Instance == null)
             new GameObject("ComboManager").AddComponent<ComboManager>();
+        if (ScorePopupManager.Instance == null)
+            new GameObject("ScorePopupManager").AddComponent<ScorePopupManager>();
         if (VFXManager.Instance == null)
             new GameObject("VFXManager").AddComponent<VFXManager>();
+        if (VFXController.Instance == null)
+            new GameObject("VFXController").AddComponent<VFXController>();
     }
 
     void EnsureVisualRoots()
@@ -189,7 +205,7 @@ public class GridManager : MonoBehaviour
         if (Camera.main == null || !Camera.main.orthographic) return;
 
         // Dark background so Canvas AppBackground shows the correct color
-        Camera.main.backgroundColor = new Color(0.059f, 0.059f, 0.071f);
+        Camera.main.backgroundColor = new Color(0.018f, 0.020f, 0.070f);
 
         float centerX = origin.x + (columns - 1) * cellSize * 0.5f;
         float gridTop = origin.y + (rows - 1) * cellSize + cellSize * 0.5f;
@@ -335,7 +351,19 @@ public class GridManager : MonoBehaviour
             int r = anchor.y + offsets[i].y;
             _grid[c, r] = squareObjects[i];
             StartCoroutine(SnapLerp(squareObjects[i], GridToWorld(c, r), 0.07f));
+
+            if (squareObjects[i] != null &&
+                squareObjects[i].TryGetComponent<SpriteRenderer>(out var sqSr))
+                VFXController.Instance?.PlayPlacementImpact(GridToWorld(c, r), sqSr.color, squareObjects[i].transform);
         }
+
+        // Subtle per-cell glow only when a block is placed.
+        Color placedColor = Color.white;
+        if (squareObjects != null && squareObjects.Count > 0 &&
+            squareObjects[0] != null &&
+            squareObjects[0].TryGetComponent<SpriteRenderer>(out var firstSr))
+            placedColor = firstSr.color;
+        TriggerPlacementCellGlow(anchor, offsets, placedColor);
 
         // Ses efekti yerleştirme anında çalışsın (lerp tamamlanmasını bekleme)
         AudioManager.Instance?.PlaySfx("place");
@@ -455,6 +483,8 @@ public class GridManager : MonoBehaviour
             yield return new WaitForSeconds(interval);
         }
 
+        VFXController.Instance?.PlayClearImpact(BuildWorldPositions(cells), Color.white);
+
         foreach (var (c, r) in cells)
             ClearCell(c, r);
     }
@@ -495,6 +525,8 @@ public class GridManager : MonoBehaviour
             SetCellColors(cells, col);
             yield return new WaitForSeconds(flashInterval);
         }
+
+        VFXController.Instance?.PlayClearImpact(BuildWorldPositions(cells), gold);
 
         foreach (var (c, r) in cells)
             ClearCell(c, r);
@@ -711,7 +743,7 @@ public class GridManager : MonoBehaviour
         SpawnPanel("BoardShadow",
             pos:   new Vector3(cx + 0.12f, cy - 0.18f, 0f),
             scale: new Vector2(boardW + 0.40f, boardH + 0.40f),
-            color: new Color(0f, 0f, 0f, 0.50f),
+            color: new Color(0.02f, 0.01f, 0.05f, 0.65f),
             order: -5,
             parent: _boardContainerRoot);
 
@@ -719,15 +751,27 @@ public class GridManager : MonoBehaviour
         SpawnPanel("BoardSurface",
             pos:   new Vector3(cx, cy, 0f),
             scale: new Vector2(boardW, boardH),
-            color: new Color(0.074f, 0.074f, 0.090f, 1f),
+            color: new Color(0.030f, 0.030f, 0.070f, 1f),
             order: -4,
             parent: _boardContainerRoot);
+
+        var grad = SpawnPanel("BoardGradient",
+            pos:   new Vector3(cx, cy, 0f),
+            scale: new Vector2(boardW - 0.10f, boardH - 0.10f),
+            color: Color.white,
+            order: -3,
+            parent: _boardContainerRoot);
+        if (grad.TryGetComponent<SpriteRenderer>(out var gradSr))
+        {
+            gradSr.sprite = GetOrCreateBoardGradientSprite();
+            gradSr.color  = new Color(1f, 1f, 1f, 0.95f);
+        }
 
         // Soft inset to fake a rounded tray/board card interior.
         SpawnPanel("BoardInset",
             pos:   new Vector3(cx, cy - 0.03f * cellSize, 0f),
             scale: new Vector2(boardW - 0.18f, boardH - 0.18f),
-            color: new Color(0f, 0f, 0f, 0.12f),
+            color: new Color(0f, 0f, 0f, 0.20f),
             order: -3,
             parent: _boardContainerRoot);
     }
@@ -772,14 +816,14 @@ public class GridManager : MonoBehaviour
         GameObject trayPanel = SpawnPanel("TrayPanel",
             pos:   new Vector3(centerX, centerY, 0f),
             scale: new Vector2(trayW, trayH),
-            color: new Color(0.074f, 0.074f, 0.090f, 1f),
+            color: new Color(0.028f, 0.028f, 0.068f, 1f),
             order: -4,
             parent: _trayContainerRoot);
 
         SpawnPanel("TrayInset",
             pos:   new Vector3(centerX, centerY - 0.03f * cellSize, 0f),
             scale: new Vector2(trayW - 0.16f, trayH - 0.16f),
-            color: new Color(0f, 0f, 0f, 0.12f),
+            color: new Color(0f, 0f, 0f, 0.22f),
             order: -3,
             parent: _trayContainerRoot);
 
@@ -818,6 +862,11 @@ public class GridManager : MonoBehaviour
         var container = new GameObject("BackgroundCells");
         container.transform.SetParent(_boardVisualRoot, false);
 
+        // Minimal etched-glass hierarchy:
+        // rim (-3), transparent interior fill (-2). No static glow.
+        Color rimColor  = colorPalette != null ? colorPalette.cellRimColor  : new Color(0.84f, 0.90f, 0.98f, 0.25f);
+        Color fillColor = colorPalette != null ? colorPalette.cellFillColor : new Color(0.006f, 0.008f, 0.015f, 0.34f);
+
         for (int c = 0; c < columns; c++)
         {
             for (int r = 0; r < rows; r++)
@@ -825,14 +874,79 @@ public class GridManager : MonoBehaviour
                 var cell = new GameObject($"BG_{c}_{r}");
                 cell.transform.parent     = container.transform;
                 cell.transform.position   = GridToWorld(c, r);
-                cell.transform.localScale = Vector3.one * cellSize * 0.96f;
 
-                var sr          = cell.AddComponent<SpriteRenderer>();
-                sr.sprite       = GetOrCreateSprite();
-                sr.color        = emptyCellColor;
-                sr.sortingOrder = -2;
+                var rimGo = new GameObject("Rim");
+                rimGo.transform.SetParent(cell.transform, false);
+                rimGo.transform.localScale = Vector3.one * cellSize * 0.992f;
+                var rimSr = rimGo.AddComponent<SpriteRenderer>();
+                rimSr.sprite = GetOrCreateSprite();
+                rimSr.color = rimColor;
+                rimSr.sortingOrder = -3;
+
+                var fillGo = new GameObject("Fill");
+                fillGo.transform.SetParent(cell.transform, false);
+                fillGo.transform.localScale = Vector3.one * cellSize * 0.94f;
+                var fillSr = fillGo.AddComponent<SpriteRenderer>();
+                fillSr.sprite = GetOrCreateSprite();
+                fillSr.color = fillColor;
+                fillSr.sortingOrder = -2;
+
+                _bgRim[c, r] = rimSr;
+                _bgFill[c, r] = fillSr;
             }
         }
+    }
+
+    void TriggerPlacementCellGlow(Vector2Int anchor, Vector2Int[] offsets, Color blockColor)
+    {
+        if (_bgRim == null || offsets == null) return;
+
+        for (int i = 0; i < offsets.Length; i++)
+        {
+            int c = anchor.x + offsets[i].x;
+            int r = anchor.y + offsets[i].y;
+            if (!IsInBounds(c, r)) continue;
+            var sr = _bgRim[c, r];
+            if (sr != null) StartCoroutine(CellBorderPulse(sr, blockColor));
+        }
+    }
+
+    IEnumerator CellBorderPulse(SpriteRenderer sr, Color blockColor)
+    {
+        if (sr == null) yield break;
+
+        Color baseCol = colorPalette != null ? colorPalette.cellRimColor : new Color(0.84f, 0.90f, 0.98f, 0.25f);
+        Color coolTint = Color.Lerp(blockColor, new Color(0.78f, 0.84f, 0.96f, 1f), 0.65f);
+        Color pulseCol = new Color(coolTint.r, coolTint.g, coolTint.b, 0f);
+
+        float inDur = 0.08f;
+        float outDur = 0.18f;
+        float peakAlpha = 0.30f;
+
+        float t = 0f;
+        while (t < inDur && sr != null)
+        {
+            t += Time.deltaTime;
+            float a = Mathf.Lerp(0f, peakAlpha, t / Mathf.Max(0.0001f, inDur));
+            sr.color = new Color(pulseCol.r, pulseCol.g, pulseCol.b, a);
+            yield return null;
+        }
+
+        t = 0f;
+        while (t < outDur && sr != null)
+        {
+            t += Time.deltaTime;
+            float a = Mathf.Lerp(peakAlpha, baseCol.a, t / Mathf.Max(0.0001f, outDur));
+            sr.color = new Color(
+                Mathf.Lerp(pulseCol.r, baseCol.r, t / Mathf.Max(0.0001f, outDur)),
+                Mathf.Lerp(pulseCol.g, baseCol.g, t / Mathf.Max(0.0001f, outDur)),
+                Mathf.Lerp(pulseCol.b, baseCol.b, t / Mathf.Max(0.0001f, outDur)),
+                a);
+            yield return null;
+        }
+
+        if (sr != null)
+            sr.color = baseCol;
     }
 
     void TriggerBoardShake()
@@ -861,6 +975,14 @@ public class GridManager : MonoBehaviour
 
         _boardVisualRoot.localPosition = basePos;
         _boardShakeRoutine = null;
+    }
+
+    List<Vector3> BuildWorldPositions(HashSet<(int c, int r)> cells)
+    {
+        var list = new List<Vector3>(cells.Count);
+        foreach (var (c, r) in cells)
+            list.Add(GridToWorld(c, r));
+        return list;
     }
 
     // ── Sprite factory ────────────────────────────────────────────────────────
@@ -907,5 +1029,34 @@ public class GridManager : MonoBehaviour
         tex.SetPixels(pixels);
         tex.Apply();
         return Sprite.Create(tex, new Rect(0, 0, S, S), new Vector2(0.5f, 0.5f), (float)S);
+    }
+
+    static Sprite GetOrCreateBoardGradientSprite()
+    {
+        if (_cachedBoardGradientSprite != null) return _cachedBoardGradientSprite;
+
+        const int S = 64;
+        var tex = new Texture2D(S, S, TextureFormat.RGBA32, false)
+        {
+            filterMode = FilterMode.Bilinear,
+            wrapMode = TextureWrapMode.Clamp
+        };
+
+        for (int y = 0; y < S; y++)
+        {
+            for (int x = 0; x < S; x++)
+            {
+                float nx = (x / (float)(S - 1) - 0.5f) * 2f;
+                float ny = (y / (float)(S - 1) - 0.5f) * 2f;
+                float radial = Mathf.Clamp01(Mathf.Sqrt(nx * nx + ny * ny));
+                Color center = new Color(0.030f, 0.028f, 0.060f, 1f);
+                Color edge   = new Color(0.012f, 0.011f, 0.026f, 1f);
+                tex.SetPixel(x, y, Color.Lerp(center, edge, radial));
+            }
+        }
+
+        tex.Apply();
+        _cachedBoardGradientSprite = Sprite.Create(tex, new Rect(0, 0, S, S), new Vector2(0.5f, 0.5f), S);
+        return _cachedBoardGradientSprite;
     }
 }

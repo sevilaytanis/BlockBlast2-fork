@@ -141,7 +141,6 @@ public class UIManager : MonoBehaviour
         GameManager.OnScoreChanged     += HandleScoreChanged;
         GameManager.OnHighScoreChanged += HandleHighScoreChanged;
         GameManager.OnGameOver         += HandleGameOver;
-        GameManager.OnScorePopup       += HandleScorePopup;
         LocalizationManager.OnLanguageChanged += RefreshTexts;
     }
 
@@ -150,7 +149,6 @@ public class UIManager : MonoBehaviour
         GameManager.OnScoreChanged     -= HandleScoreChanged;
         GameManager.OnHighScoreChanged -= HandleHighScoreChanged;
         GameManager.OnGameOver         -= HandleGameOver;
-        GameManager.OnScorePopup       -= HandleScorePopup;
         LocalizationManager.OnLanguageChanged -= RefreshTexts;
     }
 

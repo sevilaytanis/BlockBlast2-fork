@@ -21,6 +21,8 @@ public class ComboManager : MonoBehaviour
     // Fired when a placement clears more than one line.
     // VFXManager can subscribe to this for impact effects.
     public event Action<MegaBangEventData> MegaBang;
+    // Fired on every successful line clear to spawn score popup at clear center.
+    public event Action<int, Vector3> ScorePopupRequested;
 
     [Header("Combo")]
     [SerializeField] private float comboStepMultiplier = 0.25f;
@@ -145,8 +147,11 @@ public class ComboManager : MonoBehaviour
 
         float comboMultiplier = 1f + Mathf.Max(0, _comboStreak - 1) * comboStepMultiplier;
         float finalMultiplier = result.BaseMultiplier * comboMultiplier;
+        int popupScore = ComputeScoreDelta(placedSquares, result.TotalLines, finalMultiplier);
+        Vector3 popupWorld = ComputeClearCenter(result.ClearedCellWorldPositions);
 
         GameManager.Instance?.AddScore(placedSquares, result.TotalLines, finalMultiplier);
+        ScorePopupRequested?.Invoke(popupScore, popupWorld);
 
         if (result.TotalLines > 1)
         {
@@ -165,5 +170,28 @@ public class ComboManager : MonoBehaviour
     public void ResetCombo()
     {
         _comboStreak = 0;
+    }
+
+    static int ComputeScoreDelta(int squaresPlaced, int linesCleared, float multiplier)
+    {
+        if (GameManager.Instance == null) return 0;
+
+        int pts = squaresPlaced * GameManager.Instance.pointsPerSquare;
+        pts += linesCleared * GameManager.Instance.pointsPerLine;
+        if (linesCleared > 1)
+            pts += (linesCleared - 1) * GameManager.Instance.comboBonus;
+
+        return Mathf.RoundToInt(pts * multiplier);
+    }
+
+    static Vector3 ComputeClearCenter(List<Vector3> positions)
+    {
+        if (positions == null || positions.Count == 0) return Vector3.zero;
+
+        Vector3 sum = Vector3.zero;
+        for (int i = 0; i < positions.Count; i++)
+            sum += positions[i];
+
+        return sum / positions.Count;
     }
 }

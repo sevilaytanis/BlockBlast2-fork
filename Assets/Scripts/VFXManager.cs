@@ -9,23 +9,23 @@ public class VFXManager : MonoBehaviour
     public static VFXManager Instance { get; private set; }
 
     [Header("Camera Shake")]
-    [SerializeField] private float shakeDuration = 0.30f;
-    [SerializeField] private float shakeBaseIntensity = 0.08f;
-    [SerializeField] private float shakePerLine = 0.03f;
-    [SerializeField] private float shakeMaxIntensity = 0.28f;
+    [SerializeField] private float shakeDuration = 0.18f;
+    [SerializeField] private float shakeBaseIntensity = 0.03f;
+    [SerializeField] private float shakePerLine = 0.01f;
+    [SerializeField] private float shakeMaxIntensity = 0.10f;
 
     [Header("Hitstop")]
-    [SerializeField] private float hitstopDuration = 0.05f;
+    [SerializeField] private float hitstopDuration = 0.02f;
 
     [Header("Particles")]
     [SerializeField] private ParticleSystem crystalBurstPrefab;
-    [SerializeField] private int initialPoolSize = 24;
+    [SerializeField] private int initialPoolSize = 50;
     [SerializeField] private int maxBurstsPerMegaBang = 64;
 
     [Header("Grid Glow Pulse")]
     [SerializeField] private string shaderFlashProperty = "_MegaBangFlash";
-    [SerializeField] private float flashPeak = 1f;
-    [SerializeField] private float flashDuration = 0.18f;
+    [SerializeField] private float flashPeak = 0.16f;
+    [SerializeField] private float flashDuration = 0.10f;
 
     readonly Queue<ParticleSystem> _particlePool = new Queue<ParticleSystem>();
     Coroutine _shakeRoutine;
@@ -153,6 +153,7 @@ public class VFXManager : MonoBehaviour
     {
         if (crystalBurstPrefab == null) return;
 
+        _particlePool.Clear();
         for (int i = 0; i < initialPoolSize; i++)
         {
             var ps = Instantiate(crystalBurstPrefab, transform);
@@ -169,6 +170,7 @@ public class VFXManager : MonoBehaviour
         for (int i = 0; i < count; i++)
         {
             ParticleSystem ps = GetPooled();
+            if (ps == null) break;
             ps.transform.position = worldPositions[i];
             ps.gameObject.SetActive(true);
             ps.Play(true);
@@ -186,9 +188,8 @@ public class VFXManager : MonoBehaviour
         if (_particlePool.Count > 0)
             return _particlePool.Dequeue();
 
-        var ps = Instantiate(crystalBurstPrefab, transform);
-        ps.gameObject.SetActive(false);
-        return ps;
+        // Pool exhausted: skip extra bursts instead of runtime Instantiate to avoid stutter on low-end devices.
+        return null;
     }
 
     IEnumerator ReleaseAfter(ParticleSystem ps, float delay)

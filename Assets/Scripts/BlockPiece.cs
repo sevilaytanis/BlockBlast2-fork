@@ -44,6 +44,7 @@ public class BlockPiece : MonoBehaviour
 
     // Shared sprite - created once, reused by every block
     private static Sprite _sharedSprite;
+    private static Material _crystalMaterial;
     private static Transform _dragLayer;
 
     [Header("Invalid Drop Feedback")]
@@ -56,6 +57,7 @@ public class BlockPiece : MonoBehaviour
     [SerializeField] private float placeBounceScale = 1.08f;
     [SerializeField, Range(0.70f, 0.80f)] private float previewDarkenFactor = 0.75f;
     [SerializeField, Range(0.35f, 0.55f)] private float previewAlpha = 0.45f;
+    [SerializeField] private bool useLegacyDepthLayers = false;
 
     // ── Initialization (called by TrayManager) ────────────────────────────────
 
@@ -104,6 +106,7 @@ public class BlockPiece : MonoBehaviour
     void BuildSquares(Color color)
     {
         float cs = GridManager.Instance.cellSize;
+        EnsureCrystalMaterial();
 
         for (int i = 0; i < Offsets.Length; i++)
         {
@@ -116,18 +119,39 @@ public class BlockPiece : MonoBehaviour
             sr.sprite       = _sharedSprite;
             sr.color        = color;
             sr.sortingOrder = 1;
+            if (_crystalMaterial != null)
+            {
+                sr.sharedMaterial = _crystalMaterial;
+                var mpb = new MaterialPropertyBlock();
+                sr.GetPropertyBlock(mpb);
+                mpb.SetFloat("_PulseOffset", Random.Range(0f, Mathf.PI * 2f));
+                // Emission boost: her blok örneği bağımsız olarak parlar (shared material'a dokunmaz).
+                float emBoost = ColorPalette.PaletteData != null ? ColorPalette.PaletteData.emissionIntensity : 0.30f;
+                mpb.SetFloat("_InnerGlowStrength", 0.32f + emBoost);
+                sr.SetPropertyBlock(mpb);
+            }
 
-            // Soft 3D depth: top highlight + bottom shadow child layers.
-            // Children are tinted white/black and sit in the sq's local space
-            // where the sprite spans ±0.5 local units on each axis.
-            AddDepthLayer(sq, isHighlight: true,  baseSortOrder: 1);
-            AddDepthLayer(sq, isHighlight: false, baseSortOrder: 1);
+            // Optional legacy depth strips; keep off when crystal shader handles highlights/fresnel.
+            if (useLegacyDepthLayers)
+            {
+                AddDepthLayer(sq, isHighlight: true,  baseSortOrder: 1);
+                AddDepthLayer(sq, isHighlight: false, baseSortOrder: 1);
+            }
 
             sq.AddComponent<BoxCollider2D>();
             sq.AddComponent<SquareDragProxy>();
 
             _squares.Add(sq);
         }
+    }
+
+    static void EnsureCrystalMaterial()
+    {
+        if (_crystalMaterial != null) return;
+
+        var shader = Shader.Find("BlockBlast/URP/CrystalNeonGlass");
+        if (shader == null) return;
+        _crystalMaterial = new Material(shader);
     }
 
     // White (highlight) or black (shadow) strip overlaid on a block square.
@@ -194,7 +218,8 @@ public class BlockPiece : MonoBehaviour
         MoveToDragLayer();
 
         // Keep the initial contact point under the finger/mouse without jump.
-        _dragOffset  = transform.position - PointerWorld();
+        Vector3 pointer = InputManager.Instance != null ? InputManager.Instance.PointerWorld() : PointerWorld();
+        _dragOffset  = transform.position - pointer;
 
         if (!_trayBreathPaused)
         {
@@ -210,11 +235,21 @@ public class BlockPiece : MonoBehaviour
     {
         if (!_isDragging) return;
 
-        Vector3 desired = PointerWorld() + _dragOffset;
+        Vector3 pointer = InputManager.Instance != null ? InputManager.Instance.PointerWorld() : PointerWorld();
+        Vector3 desired = pointer + _dragOffset;
         if (clampToTrayWhileDragging && !GridManager.Instance.TryWorldToCell(desired, out Vector2Int anchor))
             desired = ClampInsideTrayBounds(desired);
 
-        transform.position = desired;
+        // Smooth follow for juicy drag feel.
+        transform.position = InputManager.Instance != null
+            ? InputManager.Instance.SmoothFollow(transform.position, desired)
+            : Vector3.Lerp(transform.position, desired, Mathf.Clamp01(18f * Time.deltaTime));
+
+        // Keep selected scale while dragging so users feel active selection.
+        float smoothedScale = InputManager.Instance != null
+            ? InputManager.Instance.SmoothDragScale(transform.localScale.x)
+            : Mathf.Lerp(transform.localScale.x, 1.08f, Mathf.Clamp01(14f * Time.deltaTime));
+        transform.localScale = Vector3.one * smoothedScale;
 
         if (!GridManager.Instance.TryWorldToCell(desired, out anchor))
         {
@@ -243,9 +278,23 @@ public class BlockPiece : MonoBehaviour
         GridManager.Instance.ClearPreview();
         _lastPreviewAnchor = new Vector2Int(int.MinValue, int.MinValue);
 
-        bool hasCell = GridManager.Instance.TryWorldToCell(transform.position, out Vector2Int anchor);
+        bool hasCell;
+        Vector2Int anchor;
+        Vector3 snappedCenter;
+        if (InputManager.Instance != null)
+            hasCell = InputManager.Instance.TryGetSnapCenter(transform.position, out anchor, out snappedCenter);
+        else
+        {
+            hasCell = GridManager.Instance.TryWorldToCell(transform.position, out anchor);
+            snappedCenter = hasCell ? GridManager.Instance.GridToWorld(anchor.x, anchor.y) : transform.position;
+        }
+
         if (hasCell && GridManager.Instance.CanPlaceAt(anchor, Offsets))
+        {
+            // Snap the dragged root to nearest cell center before placement.
+            transform.position = snappedCenter;
             StartCoroutine(PlaceWithFeedback(anchor));
+        }
         else
         {
             AudioManager.Instance?.PlaySfx("invalid");

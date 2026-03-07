@@ -93,7 +93,11 @@ public static class BlockShapes
     }
 
     public static Color GetRandomColor()
-        => Colors[UnityEngine.Random.Range(0, Colors.Length)];
+    {
+        // Her zaman ColorPalette.Blocks üzerinden oku — editörde palette değişirse yansır.
+        var palette = ColorPalette.Blocks;
+        return palette[UnityEngine.Random.Range(0, palette.Length)];
+    }
 
     public static PieceDefinition GetDefinitionByOffsets(Vector2Int[] offsets)
     {
