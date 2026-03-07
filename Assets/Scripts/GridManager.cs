@@ -66,6 +66,11 @@ public class GridManager : MonoBehaviour
     [Header("Color Palette (opsiyonel — boş bırakılırsa Resources/BlockPalette yüklenir)")]
     [SerializeField] private BlockPaletteData colorPalette;
 
+    [Header("Grid Settings (Inspector'dan ata — boş kalırsa kod fallback'leri kullanılır)")]
+    [Tooltip("Boş bırakılırsa aşağıdaki hardcoded koyu değerler kullanılır. " +
+             "Fine-tune için bir GridSettings asset atayabilirsin.")]
+    [SerializeField] private GridSettings _gridSettings;
+
     void Awake()
     {
         Instance = this;
@@ -74,6 +79,9 @@ public class GridManager : MonoBehaviour
         _bgFill  = new SpriteRenderer[columns, rows];
         if (colorPalette == null)
             colorPalette = ColorPalette.PaletteData;
+        // _gridSettings: Resources.Load KULLANILMIYOR — eski asset yanlış değer yükler.
+        // Boş bırakılırsa her metodun hardcoded fallback'i devreye girer.
+        // Fine-tune istersen Inspector'dan manuel ata.
         // Visual building deferred to Start() so ComputeResponsiveLayout() can run first.
     }
 
@@ -205,7 +213,9 @@ public class GridManager : MonoBehaviour
         if (Camera.main == null || !Camera.main.orthographic) return;
 
         // Dark background so Canvas AppBackground shows the correct color
-        Camera.main.backgroundColor = new Color(0.018f, 0.020f, 0.070f);
+        Camera.main.backgroundColor = _gridSettings != null
+            ? _gridSettings.cameraBackground
+            : new Color(0.022f, 0.030f, 0.090f, 1f); // #05071A — çok koyu lacivert
 
         float centerX = origin.x + (columns - 1) * cellSize * 0.5f;
         float gridTop = origin.y + (rows - 1) * cellSize + cellSize * 0.5f;
@@ -743,15 +753,15 @@ public class GridManager : MonoBehaviour
         SpawnPanel("BoardShadow",
             pos:   new Vector3(cx + 0.12f, cy - 0.18f, 0f),
             scale: new Vector2(boardW + 0.40f, boardH + 0.40f),
-            color: new Color(0.02f, 0.01f, 0.05f, 0.65f),
+            color: _gridSettings != null ? _gridSettings.boardShadow : new Color(0.018f, 0.022f, 0.065f, 0.72f),
             order: -5,
             parent: _boardContainerRoot);
 
-        // Board surface slightly lighter than app bg so the grid feels seated.
+        // Board surface — #0E1330 derin lacivert
         SpawnPanel("BoardSurface",
             pos:   new Vector3(cx, cy, 0f),
             scale: new Vector2(boardW, boardH),
-            color: new Color(0.030f, 0.030f, 0.070f, 1f),
+            color: _gridSettings != null ? _gridSettings.boardSurface : new Color(0.039f, 0.055f, 0.145f, 1f), // #0A0E25
             order: -4,
             parent: _boardContainerRoot);
 
@@ -771,7 +781,7 @@ public class GridManager : MonoBehaviour
         SpawnPanel("BoardInset",
             pos:   new Vector3(cx, cy - 0.03f * cellSize, 0f),
             scale: new Vector2(boardW - 0.18f, boardH - 0.18f),
-            color: new Color(0f, 0f, 0f, 0.20f),
+            color: _gridSettings != null ? _gridSettings.boardInset : new Color(0f, 0f, 0f, 0.22f),
             order: -3,
             parent: _boardContainerRoot);
     }
@@ -809,21 +819,22 @@ public class GridManager : MonoBehaviour
         SpawnPanel("TrayShadow",
             pos:   new Vector3(centerX + 0.10f, centerY - 0.12f, 0f),
             scale: new Vector2(trayW + 0.40f, trayH + 0.20f),
-            color: new Color(0f, 0f, 0f, 0.45f),
+            color: _gridSettings != null ? _gridSettings.trayShadow : new Color(0f, 0f, 0f, 0.52f),
             order: -5,
             parent: _trayContainerRoot);
 
+        // Tray panel — board ile aynı renk (#0E1330) — bloklar maksimum pop yapar
         GameObject trayPanel = SpawnPanel("TrayPanel",
             pos:   new Vector3(centerX, centerY, 0f),
             scale: new Vector2(trayW, trayH),
-            color: new Color(0.028f, 0.028f, 0.068f, 1f),
+            color: _gridSettings != null ? _gridSettings.trayPanel : new Color(0.039f, 0.055f, 0.145f, 1f), // #0A0E25
             order: -4,
             parent: _trayContainerRoot);
 
         SpawnPanel("TrayInset",
             pos:   new Vector3(centerX, centerY - 0.03f * cellSize, 0f),
             scale: new Vector2(trayW - 0.16f, trayH - 0.16f),
-            color: new Color(0f, 0f, 0f, 0.22f),
+            color: _gridSettings != null ? _gridSettings.trayInset : new Color(0f, 0f, 0f, 0.24f),
             order: -3,
             parent: _trayContainerRoot);
 
@@ -862,36 +873,63 @@ public class GridManager : MonoBehaviour
         var container = new GameObject("BackgroundCells");
         container.transform.SetParent(_boardVisualRoot, false);
 
-        // Minimal etched-glass hierarchy:
-        // rim (-3), transparent interior fill (-2). No static glow.
-        Color rimColor  = colorPalette != null ? colorPalette.cellRimColor  : new Color(0.84f, 0.90f, 0.98f, 0.25f);
-        Color fillColor = colorPalette != null ? colorPalette.cellFillColor : new Color(0.006f, 0.008f, 0.015f, 0.34f);
+        // 3 katmanlı hücre sistemi — "recessed pocket" derinlik efekti:
+        //
+        //   Rim  (-3): %99.2 büyüklük, alpha 0.07 hayalet rehber çizgisi.
+        //              Board yüzeyi görünür (gap = implied grid line).
+        //   Fill (-2): %91 büyüklük, board'dan DAHA KOYU renk.
+        //              Blokların "içine oturduğu" karanlık yuva.
+        //   HL   (-1): sol-üst köşe %5 beyaz parlaması (isteğe bağlı).
+        //
+        // Grid çizgileri renk olarak değil, board'un fill gaps'ten görünmesiyle oluşur.
+        Color edgeCol = _gridSettings != null ? _gridSettings.cellEdge   : new Color(0.20f, 0.23f, 0.45f, 0.07f);
+        Color centCol = _gridSettings != null ? _gridSettings.cellCenter  : new Color(0.018f, 0.022f, 0.060f, 0.92f);
+        float hlAlpha = _gridSettings != null ? _gridSettings.cellHighlightAlpha : 0.00f;
 
         for (int c = 0; c < columns; c++)
         {
             for (int r = 0; r < rows; r++)
             {
                 var cell = new GameObject($"BG_{c}_{r}");
-                cell.transform.parent     = container.transform;
-                cell.transform.position   = GridToWorld(c, r);
+                cell.transform.parent   = container.transform;
+                cell.transform.position = GridToWorld(c, r);
 
+                // ── Katman 1: koyu dış kenar (inner shadow çerçevesi) ─────────
                 var rimGo = new GameObject("Rim");
                 rimGo.transform.SetParent(cell.transform, false);
                 rimGo.transform.localScale = Vector3.one * cellSize * 0.992f;
                 var rimSr = rimGo.AddComponent<SpriteRenderer>();
-                rimSr.sprite = GetOrCreateSprite();
-                rimSr.color = rimColor;
+                rimSr.sprite       = GetOrCreateSprite();
+                rimSr.color        = edgeCol;
                 rimSr.sortingOrder = -3;
 
+                // ── Katman 2: koyu iç dolgu (board'dan koyu → recessed pocket) ──
                 var fillGo = new GameObject("Fill");
                 fillGo.transform.SetParent(cell.transform, false);
-                fillGo.transform.localScale = Vector3.one * cellSize * 0.94f;
+                // 91%: her kenarda ~4.5% gap → board yüzeyi gap'lerden hayalet çizgi gibi görünür
+                fillGo.transform.localScale = Vector3.one * cellSize * 0.910f;
                 var fillSr = fillGo.AddComponent<SpriteRenderer>();
-                fillSr.sprite = GetOrCreateSprite();
-                fillSr.color = fillColor;
+                fillSr.sprite       = GetOrCreateSprite();
+                fillSr.color        = centCol;
                 fillSr.sortingOrder = -2;
 
-                _bgRim[c, r] = rimSr;
+                // ── Katman 3: sol-üst köşe cam parlaması ─────────────────────
+                if (hlAlpha > 0.001f)
+                {
+                    var hlGo = new GameObject("HL");
+                    hlGo.transform.SetParent(cell.transform, false);
+                    // Sol-üste kaydır: hücrenin ¼'ü sol, ¼'ü yukarı
+                    float off = cellSize * 0.17f;
+                    hlGo.transform.localPosition = new Vector3(-off, off, 0f);
+                    // Geniş oval — sol-üst köşeyi örter
+                    hlGo.transform.localScale = new Vector3(cellSize * 0.50f, cellSize * 0.40f, 1f);
+                    var hlSr = hlGo.AddComponent<SpriteRenderer>();
+                    hlSr.sprite       = GetOrCreateSprite();
+                    hlSr.color        = new Color(1f, 1f, 1f, hlAlpha);
+                    hlSr.sortingOrder = -1;
+                }
+
+                _bgRim[c, r]  = rimSr;
                 _bgFill[c, r] = fillSr;
             }
         }
@@ -915,7 +953,8 @@ public class GridManager : MonoBehaviour
     {
         if (sr == null) yield break;
 
-        Color baseCol = colorPalette != null ? colorPalette.cellRimColor : new Color(0.84f, 0.90f, 0.98f, 0.25f);
+        // Hücre kenar rengine geri döner (pulse biter → eski koyu kenara dön)
+        Color baseCol = _gridSettings != null ? _gridSettings.cellEdge : new Color(0.20f, 0.23f, 0.45f, 0.07f);
         Color coolTint = Color.Lerp(blockColor, new Color(0.78f, 0.84f, 0.96f, 1f), 0.65f);
         Color pulseCol = new Color(coolTint.r, coolTint.g, coolTint.b, 0f);
 
@@ -995,13 +1034,13 @@ public class GridManager : MonoBehaviour
         return _cachedSprite;
     }
 
-    // 32×32 rounded-rectangle sprite with anti-aliased corners.
-    // FilterMode.Bilinear + corner radius gives soft casual-plastic look.
-    // Replaces the old 4×4 Point-filtered flat square.
+    // 64×64 rounded-rectangle sprite with anti-aliased corners.
+    // R=10 gives Block Blast style rounded corners (15.6% of width).
+    // Pure white RGB so SpriteRenderer color drives block hue; shader adds all shading.
     public static Sprite MakeSquareSprite()
     {
-        const int S = 32;   // texture resolution
-        const int R = 5;    // corner radius in pixels
+        const int S = 64;   // texture resolution (64 = crisper edges, better rounding)
+        const int R = 10;   // corner radius in pixels (R/S = 15.6% — matching Block Blast roundness)
 
         var tex = new Texture2D(S, S, TextureFormat.RGBA32, false)
         {
@@ -1027,7 +1066,7 @@ public class GridManager : MonoBehaviour
         }
 
         tex.SetPixels(pixels);
-        tex.Apply();
+        tex.Apply(false);
         return Sprite.Create(tex, new Rect(0, 0, S, S), new Vector2(0.5f, 0.5f), (float)S);
     }
 

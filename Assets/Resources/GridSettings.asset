@@ -1,0 +1,24 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 14d8ea2f283ca44ac8952a50e3fb2b0c, type: 3}
+  m_Name: GridSettings
+  m_EditorClassIdentifier: Assembly-CSharp::GridSettings
+  boardSurface: {r: 0.055, g: 0.075, b: 0.188, a: 1}
+  boardShadow: {r: 0.018, g: 0.022, b: 0.065, a: 0.72}
+  boardInset: {r: 0, g: 0, b: 0, a: 0.22}
+  cellEdge: {r: 0.106, g: 0.122, b: 0.227, a: 0.92}
+  cellCenter: {r: 0.165, g: 0.184, b: 0.4, a: 0.88}
+  cellHighlightAlpha: 0.05
+  trayPanel: {r: 0.055, g: 0.075, b: 0.188, a: 1}
+  trayInset: {r: 0, g: 0, b: 0, a: 0.24}
+  trayShadow: {r: 0, g: 0, b: 0, a: 0.52}
+  cameraBackground: {r: 0.035, g: 0.05, b: 0.14, a: 1}

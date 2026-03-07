@@ -152,6 +152,19 @@ public class BlockPiece : MonoBehaviour
         var shader = Shader.Find("BlockBlast/URP/CrystalNeonGlass");
         if (shader == null) return;
         _crystalMaterial = new Material(shader);
+
+        // Glossy plastic defaults — tam opak, güçlü highlight, orta kenar koyulaşması.
+        // Bu değerler shader'ın kendi Property defaults'larıyla örtüşüyor;
+        // burada explicit set etmek inspector'da "Reset" sonrası da doğru kalmasını sağlar.
+        _crystalMaterial.SetFloat("_GlassAlpha",        1.00f); // tam opak
+        _crystalMaterial.SetFloat("_SpecularStrength",  1.55f); // parlak oval highlight
+        _crystalMaterial.SetFloat("_SpecularSize",      0.14f); // highlight oval boyutu
+        _crystalMaterial.SetFloat("_InnerGlowPower",    2.00f); // highlight kenar yumuşaklığı
+        _crystalMaterial.SetFloat("_FresnelStrength",   0.55f); // kenar koyulaşma şiddeti
+        _crystalMaterial.SetFloat("_FresnelPower",      2.20f); // kenar koyulaşma keskinliği
+        _crystalMaterial.SetFloat("_RefractionStrength",0.045f);// üst rim genişliği
+        _crystalMaterial.SetFloat("_PulseSpeed",        0.90f);
+        _crystalMaterial.SetFloat("_PulseAmount",       0.025f);
     }
 
     // White (highlight) or black (shadow) strip overlaid on a block square.

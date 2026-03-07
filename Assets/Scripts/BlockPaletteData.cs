@@ -28,6 +28,8 @@ public class BlockPaletteData : ScriptableObject
 
     [Header("Block Emission / Glow")]
     [Range(0f, 1.0f)]
-    [Tooltip("Inner glow (emission) şiddeti. 0 = orijinal shader değeri, 1 = maksimum parlaklık.")]
-    public float emissionIntensity = 0.30f;
+    [Tooltip(
+        "Inner glow (emission) şiddeti — blokların karanlık zemin üzerinde parlamasını sağlar.\n" +
+        "Siyaha yakın board üzerinde 0.50-0.60 önerilir.")]
+    public float emissionIntensity = 0.55f;
 }
